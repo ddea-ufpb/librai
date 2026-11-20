@@ -1,0 +1,36 @@
+## C02 · Editar sinal
+
+- **Superfície · ator:** Console de curadoria · administrador / curador
+- **Objetivo:** Cadastrar ou corrigir um sinal com vídeo de referência licenciado e levá-lo até a publicação.
+- **Chega de / vai para:** **C01** (Novo sinal / Editar), **C03** (Corrigir sinal) → **C01** (salvo/publicado/Voltar) · **C03** (Voltar, se veio de lá)
+- **Mostra:**
+  - `status` atual e `version`; `reviewed_by`/`reviewed_at` quando publicado
+  - pré-visualização do vídeo de referência (`reference_media.url`), `mime_type`, `duration_ms`, `size_bytes`
+  - lista de pendências para publicar (vinda de `publish_requirements_missing`, REQ-41)
+  - reportes abertos deste sinal (`open_reports_count`, com link para C03)
+- **Coleta:**
+  - `gloss` · texto, 1 a 60 caracteres, guardado em maiúsculas · obrigatório
+  - `description_text` · texto, até 1.000 caracteres (descrição da execução) · obrigatório para publicar
+  - `regional_variant` · texto, até 80 caracteres (ex.: "Nacional", "Pernambuco") · obrigatório
+  - `recognizer_label` · escolha entre `admin_list_recognizer_labels` · obrigatório
+  - `curriculum_order` · inteiro ≥ 1 · obrigatório
+  - `source_credit` · texto, até 200 caracteres (quem executa a referência) · obrigatório
+  - arquivo de referência · `video/mp4` ou `video/webm`, até 50 MB · obrigatório para publicar
+  - `license` · texto (ex.: "CC BY 4.0", "Autorização de uso nº …") · obrigatório para publicar
+  - `author_credit` · texto · obrigatório para publicar
+  - `consent_confirmed` · caixa "A pessoa no vídeo autorizou o uso da imagem" · obrigatório para publicar
+- **Ações:**
+  - **Salvar** (primária) → `admin_create_sign` (novo) ou `admin_update_sign` com `version` → permanece com "Salvo" (REQ-55)
+  - **Enviar vídeo** → `admin_upload_reference_media` (multipart com `license`, `author_credit`, `consent_confirmed`) → pré-visualização atualizada
+  - **Enviar para revisão** (`draft → in_review`) / **Publicar** (`in_review → published`) / **Devolver para rascunho** / **Arquivar** (`published → archived`) / **Reabrir** (`archived → draft`) → `admin_change_sign_status` com `version` → C01 com a mensagem do novo status
+  - **Voltar** → C01 (pergunta se há alterações não salvas)
+- **Estados:**
+  - *carregando:* esqueleto ao abrir (`admin_get_sign`); barra de progresso no envio de vídeo (REQ-54)
+  - *vazio:* novo sinal → formulário em branco com `status = draft`; sem vídeo → "Nenhum vídeo de referência" e pendência listada (REQ-60)
+  - *erro:* `version_conflict` → "Outra pessoa alterou este sinal. Recarregue para ver a versão atual." com as suas alterações preservadas para copiar (REQ-43) · `unknown_label` → mensagem no campo (REQ-48) · `publish_requirements_missing` → lista de pendências (REQ-41) · `invalid_transition` (REQ-42) · `file_too_large` / `unsupported_media_type` (REQ-44) · 5xx → "Tentar de novo", campos preservados (REQ-57)
+  - *sucesso:* "Salvo" só depois da resposta 200/201 (REQ-55); publicação → C01 com "Sinal publicado"
+  - *offline:* formulário editável, mas "Salvar", "Enviar vídeo" e mudanças de status desabilitados (REQ-51)
+  - *sem permissão:* `role` diferente de `admin` → aviso (REQ-07); sessão expirada → G01 (REQ-56)
+- **Regras:** publicação exige vídeo com `license`, `consent_confirmed = true` e `description_text` (REQ-41); transições só as de REQ-42; toda gravação envia `version` (controle otimista, REQ-43); `recognizer_label` só entre os rótulos do modelo (REQ-48); arquivar não quebra sessões em andamento (REQ-45).
+- **Requisitos · contrato:** REQ-41, REQ-42, REQ-43, REQ-44, REQ-45, REQ-48, REQ-55 · `GET /admin/signs/{sign_id}` (`admin_get_sign`), `POST /admin/signs` (`admin_create_sign`), `PUT /admin/signs/{sign_id}` (`admin_update_sign`), `POST /admin/signs/{sign_id}/reference-media` (`admin_upload_reference_media`), `POST /admin/signs/{sign_id}/status` (`admin_change_sign_status`), `GET /admin/recognizer/labels` (`admin_list_recognizer_labels`)
+- **Acessibilidade:** a lista de pendências fica no topo, com links para cada campo; o envio de vídeo tem alternativa por teclado (não depende de arrastar, WCAG 2.5.7); erros associados aos campos.

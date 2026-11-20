@@ -1,0 +1,24 @@
+## G02 · Criar conta
+
+- **Superfície · ator:** Acesso · aluno
+- **Objetivo:** Criar uma conta de aluno para começar a praticar.
+- **Chega de / vai para:** **G01** ("Criar conta") → **A01** (conta criada, já autenticado) · "Já tenho conta" → **G01**
+- **Mostra:** aviso de que contas de professor e de administrador são criadas pela coordenação (não por esta tela); link para o termo de uso e a política de privacidade.
+- **Coleta:**
+  - `display_name` · texto, 2 a 60 caracteres · obrigatório
+  - `email` · e-mail · obrigatório
+  - `password` · senha, 8 a 128 caracteres · obrigatório
+  - `accepted_terms_version` · caixa de seleção "Li e aceito os termos de uso" · obrigatório
+- **Ações:**
+  - **Criar conta** (primária) → `create_account` → conta com `role = student` + sessão autenticada → A01
+  - **Já tenho conta** → nenhuma chamada → G01
+- **Estados:**
+  - *carregando:* botão desabilitado com indicador depois de 300 ms (REQ-54)
+  - *vazio:* formulário em branco; requisitos de senha visíveis antes de digitar (REQ-60)
+  - *erro:* `email_taken` → "Já existe uma conta com este e-mail" + link "Entrar" (REQ-05) · `invalid_payload` em `password` → "A senha precisa ter de 8 a 128 caracteres" (REQ-06) · 5xx → "Tentar de novo", campos preservados (REQ-57)
+  - *sucesso:* vai para A01 com a mensagem "Conta criada" anunciada (REQ-61)
+  - *offline:* faixa "Sem conexão"; botão desabilitado (REQ-51)
+  - *sem permissão:* usuário já autenticado que abrir G02 é levado à área do seu papel (REQ-07)
+- **Regras:** o papel é sempre `student`, mesmo que o cliente envie outro (REQ-04); a senha nunca é devolvida nem registrada em log (REQ-06); o consentimento da câmera **não** é pedido aqui, só em A02, no momento do uso (REQ-08).
+- **Requisitos · contrato:** REQ-04, REQ-05, REQ-06 · `POST /accounts` (`create_account`)
+- **Acessibilidade:** requisitos de senha em texto, não só por cor; `autocomplete="new-password"`; ordem de foco igual à ordem visual; não bloquear colar senha (WCAG 3.3.8).

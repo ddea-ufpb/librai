@@ -1,0 +1,24 @@
+## A05 · Resumo da sessão
+
+- **Superfície · ator:** App do aluno · aluno
+- **Objetivo:** Mostrar como foi a sessão que terminou, sinal por sinal.
+- **Chega de / vai para:** **A04** (Ver resumo), **A03** (Encerrar sessão), qualquer tela que recebeu `session_not_active` → **A03** (Nova prática) · **A01** (Voltar ao início) · **A07** (rever um sinal da lista)
+- **Mostra:**
+  - como terminou: `status` (`finished` = "Prática concluída" · `abandoned` = "Prática encerrada antes do fim"), duração (`started_at` → `finished_at`)
+  - totais: quantos sinais `mastered`, `not_mastered`, `skipped`, `not_reached`
+  - lista `items[]`: `gloss`, `outcome` (texto + ícone), `attempts_count`, `best_confidence` em %
+- **Coleta:** nenhuma.
+- **Ações:**
+  - **Nova prática** (primária) → `start_session` → A03 (REQ-13)
+  - **Rever sinal** (em cada item com `outcome` ≠ `mastered`) → A07 com `sign_id`
+  - **Voltar ao início** → A01
+- **Estados:**
+  - *carregando:* esqueleto da lista (REQ-54)
+  - *vazio:* sessão encerrada antes da primeira tentativa → "Você encerrou antes de praticar algum sinal" e todos os itens `not_reached` (REQ-31)
+  - *erro:* `not_found` (sessão de outro aluno ou inexistente) → "Não encontramos esta prática" + A01 (REQ-31) · `no_signs_available` em "Nova prática" (REQ-14) · 5xx → "Tentar de novo" (REQ-57)
+  - *sucesso:* lista completa, título anunciado por `aria-live` (REQ-61)
+  - *offline:* resumo já carregado continua visível; "Nova prática" desabilitado (REQ-51)
+  - *sem permissão:* `role` errado → aviso (REQ-07); sessão expirada → G01 (REQ-56)
+- **Regras:** o resumo só existe para sessões `finished` ou `abandoned` (REQ-31, REQ-58); sinais não alcançados aparecem como `not_reached`, nunca como erro; sem ranking ou comparação com outros alunos (diretrizes §5).
+- **Requisitos · contrato:** REQ-13, REQ-22, REQ-31, REQ-53, REQ-58 · `GET /practice-sessions/{session_id}/summary` (`get_session_summary`), `POST /practice-sessions` (`start_session`)
+- **Acessibilidade:** a lista é uma tabela semântica no desktop e uma lista de cartões no celular, com cabeçalhos associados; `outcome` sempre em texto, além do ícone.

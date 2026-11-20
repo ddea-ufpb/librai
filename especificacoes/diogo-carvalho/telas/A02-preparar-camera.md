@@ -1,0 +1,27 @@
+## A02 · Preparar câmera
+
+- **Superfície · ator:** App do aluno · aluno
+- **Objetivo:** Obter o consentimento informado e deixar a câmera pronta para a prática.
+- **Chega de / vai para:** **A01** ("Começar prática" sem consentimento) · **A03** (câmera negada ou perdida durante a prática) → **A03** (câmera pronta) · **A01** (Voltar ou consentimento revogado)
+- **Mostra:**
+  - explicação curta em três itens: (1) a câmera é usada só durante a gravação da tentativa; (2) **o vídeo não sai do seu aparelho** — só os pontos das mãos (números) são enviados (REQ-09); (3) nada da câmera fica guardado, só o resultado da tentativa (REQ-11)
+  - versão do termo (`terms_version`) e data do consentimento (`granted_at`) quando já existir
+  - pré-visualização espelhada da câmera com o contorno do quadro e o indicador "Mão detectada / Mão não detectada" (calculado no navegador)
+- **Coleta:**
+  - `kind = camera_processing` · implícito · obrigatório
+  - `terms_version` · confirmação "Entendi e autorizo o uso da câmera nessas condições" · obrigatório
+- **Ações:**
+  - **Autorizar e ligar a câmera** (primária) → `grant_consent` → depois o navegador pede a câmera (`getUserMedia`) → pré-visualização ativa
+  - **Estou pronto** → nenhuma chamada (só habilita com mão detectada em ≥ 10 quadros seguidos, a mesma regra de REQ-28) → A03
+  - **Revogar consentimento** (só se já consentiu) → `revoke_consent` → sessão ativa encerrada (REQ-12) → A01
+  - **Voltar** → desliga a câmera → A01
+- **Estados:**
+  - *carregando:* "Ligando a câmera…" enquanto `getUserMedia` e o modelo de pontos das mãos carregam (REQ-54)
+  - *vazio:* nenhuma câmera encontrada no aparelho → "Não encontramos uma câmera. A prática precisa de câmera frontal ou webcam." (sem ação primária) (REQ-60)
+  - *erro:* `NotAllowedError` do navegador → instruções para liberar a câmera nas configurações do navegador, sem pedir de novo em loop · modelo de pontos não carregou → "Tentar de novo" (REQ-57) · mão não detectada → dica de enquadramento e luz (REQ-28)
+  - *sucesso:* "Mão detectada — tudo pronto" + botão "Estou pronto" habilitado (REQ-28, REQ-61)
+  - *offline:* consentimento não pode ser gravado → botão primário desabilitado (REQ-51); se o consentimento já existe, a pré-visualização funciona offline
+  - *sem permissão:* `role` diferente de `student` → aviso (REQ-07)
+- **Regras:** o pedido de câmera do navegador **só** acontece depois do clique em "Autorizar" (P3 das diretrizes); sem consentimento vigente, o envio de tentativas é recusado pela API (REQ-08); a pré-visualização e a extração de pontos acontecem no navegador e nada é enviado nesta tela.
+- **Requisitos · contrato:** REQ-08, REQ-09, REQ-11, REQ-12, REQ-28 · `POST /me/consents` (`grant_consent`), `DELETE /me/consents/camera_processing` (`revoke_consent`)
+- **Acessibilidade:** explicar por que a câmera é pedida **antes** do pedido do navegador; indicador "Mão detectada" em texto + ícone + borda (não só cor verde); o indicador vermelho de câmera ligada também tem rótulo textual "Câmera ligada".

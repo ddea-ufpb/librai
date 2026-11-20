@@ -1,0 +1,23 @@
+## G01 · Entrar
+
+- **Superfície · ator:** Acesso · todos (aluno, professor, administrador)
+- **Objetivo:** Autenticar o usuário e levá-lo à área do seu papel.
+- **Chega de / vai para:** abertura do app, sessão expirada em qualquer tela (REQ-56), "Sair" em qualquer tela → **A01** (`role = student`) · **P01** (`role = teacher`) · **C01** (`role = admin`) · rota de destino preservada, se houver · "Criar conta" → **G02**
+- **Mostra:** nome do produto; aviso de sessão expirada quando veio de REQ-56; mensagem de erro de credenciais; tempo restante de bloqueio (`Retry-After`) quando houver.
+- **Coleta:**
+  - `email` · e-mail · obrigatório
+  - `password` · senha (aceita colar e gerenciador de senhas) · obrigatório
+- **Ações:**
+  - **Entrar** (primária) → `login` → cookie `librai_session` criado; `get_me` devolve `role` → A01 / P01 / C01 ou rota preservada
+  - **Criar conta** → nenhuma chamada → G02
+  - **Mostrar senha** → alterna a visibilidade localmente → permanece
+- **Estados:**
+  - *carregando:* botão "Entrar" desabilitado com indicador depois de 300 ms (REQ-54)
+  - *vazio:* formulário em branco; botão habilitado só com os dois campos preenchidos (REQ-60)
+  - *erro:* `invalid_credentials` → "E-mail ou senha não conferem" sem dizer qual (REQ-02) · `too_many_attempts` → "Muitas tentativas. Tente de novo em N min" com o botão desabilitado até lá (REQ-03) · 5xx → mensagem e "Tentar de novo", campos preservados (REQ-57)
+  - *sucesso:* redireciona direto, sem tela intermediária (REQ-61)
+  - *offline:* faixa "Sem conexão"; botão "Entrar" desabilitado (REQ-51)
+  - *sem permissão:* conta com `status = disabled` → `forbidden` → "Esta conta está desativada. Procure a coordenação do curso." (REQ-07)
+- **Regras:** `email` em formato válido antes de enviar; o papel nunca é escolhido pelo usuário, vem de `get_me` (REQ-04); bloqueio por e-mail após 5 falhas em 15 min (REQ-03).
+- **Requisitos · contrato:** REQ-01, REQ-02, REQ-03, REQ-07, REQ-56 · `POST /auth/login` (`login`), `GET /me` (`get_me`)
+- **Acessibilidade:** rótulos visíveis acima dos campos (não só placeholder); `autocomplete="email"` e `autocomplete="current-password"`; erro associado ao campo por `aria-describedby` e anunciado por `aria-live` (WCAG 3.3.1, 3.3.8).

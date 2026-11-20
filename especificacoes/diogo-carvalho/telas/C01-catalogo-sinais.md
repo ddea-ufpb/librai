@@ -1,0 +1,29 @@
+## C01 · Catálogo de sinais
+
+- **Superfície · ator:** Console de curadoria · administrador / curador
+- **Objetivo:** Ver o catálogo de sinais por status e escolher qual criar, revisar ou editar.
+- **Chega de / vai para:** **G01** (`role = admin`), **C02** (salvar/publicar/voltar), **C03**, **C04** → **C02** (Novo sinal / Editar) · **C03** (Reportes abertos) · **C04** (Contas) · **G01** (Sair)
+- **Mostra:**
+  - contadores por `status`: `draft`, `in_review`, `published`, `archived`
+  - contador de reportes `open` (`open_reports_count`)
+  - por sinal (`items[]`): `gloss`, `regional_variant`, `recognizer_label`, `status`, `curriculum_order`, `has_reference_media`, `open_reports_count`, `updated_at`
+- **Coleta:**
+  - `status` · filtro por status · opcional
+  - `q` · busca por `gloss` · opcional
+- **Ações:**
+  - **Novo sinal** (primária) → C02 vazio
+  - **Editar** (em cada linha) → C02 com `sign_id`
+  - **Filtrar / buscar** → `admin_list_signs?status=&q=` → permanece
+  - **Reportes abertos** → C03
+  - **Contas** → C04
+  - **Sair** → `logout` → G01
+- **Estados:**
+  - *carregando:* esqueleto da tabela (REQ-54)
+  - *vazio:* catálogo sem sinais → "Nenhum sinal cadastrado. Enquanto não houver sinal publicado, os alunos não conseguem praticar." + "Novo sinal" (REQ-14) · filtro sem resultado → "Nenhum sinal com esse filtro" + limpar filtro (REQ-60)
+  - *erro:* 5xx → "Tentar de novo" (REQ-57)
+  - *sucesso:* tabela ordenada por `curriculum_order`; mensagem de retorno de C02 ("Sinal publicado") anunciada (REQ-61)
+  - *offline:* dados já carregados visíveis; "Novo sinal" desabilitado (REQ-51)
+  - *sem permissão:* `role` diferente de `admin` → aviso (REQ-07); sessão expirada → G01 (REQ-56)
+- **Regras:** alerta destacado quando `published` = 0, porque bloqueia a prática (REQ-14); sinais `archived` continuam listados, mas fora de novas sessões (REQ-45).
+- **Requisitos · contrato:** REQ-07, REQ-14, REQ-42, REQ-45 · `GET /admin/signs` (`admin_list_signs`), `POST /auth/logout` (`logout`)
+- **Acessibilidade:** `status` em texto (etiqueta) + cor; filtros como controles nativos rotulados; contadores são links com texto descritivo ("3 sinais em revisão").

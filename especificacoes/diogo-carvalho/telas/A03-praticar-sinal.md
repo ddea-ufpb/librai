@@ -1,0 +1,31 @@
+## A03 · Praticar sinal
+
+- **Superfície · ator:** App do aluno · aluno
+- **Objetivo:** Executar diante da câmera o sinal pedido pelo agente tutor e enviar a tentativa.
+- **Chega de / vai para:** **A01** (começar/continuar), **A02** (câmera pronta), **A04** (Tentar de novo / Próximo sinal / Pular), **A05** (Nova prática) → **A04** (tentativa avaliada) · **A05** (Encerrar sessão) · **A02** (câmera perdida)
+- **Mostra:**
+  - progresso da sessão: "Sinal `current_position + 1` de `total_signs`" e "Tentativa `next_attempt_number` de `max_attempts_per_sign`"
+  - instrução do agente: "Faça o sinal de **`gloss`**"
+  - vídeo de referência do sinal atual (`current_sign.reference_media_url`), com pausar, repetir e 0,5× (REQ-52)
+  - `current_sign.description_text` (expansível), `regional_variant` e `source_credit` (REQ-34)
+  - pré-visualização espelhada da câmera com o indicador "Mão detectada" e a dica fixa "Mantenha o sinal parado, com a palma voltada para a câmera" (o modelo atual reconhece sinais estáticos — R-07)
+  - contagem regressiva de 3 s antes da gravação e barra da janela de captura (`CAPTURE_WINDOW`, 3 s)
+- **Coleta:** (montado pelo cliente, não digitado)
+  - `client_attempt_id` · UUID gerado no cliente por tentativa · obrigatório
+  - `expected_sign_id` · id do `current_sign` exibido · obrigatório
+  - `landmarks` · `{ fps, frames[ { t_ms, hands[ { handedness, points[21][3] } ] } ] }`, até 90 quadros · obrigatório
+- **Ações:**
+  - **Gravar tentativa** (primária) → contagem de 3 s → captura de 3 s no navegador → `submit_attempt` → A04 com o `AttemptResult`
+  - **Rever referência** → toca o vídeo de novo → permanece
+  - **Encerrar sessão** → confirmação → `abandon_session` → A05
+- **Estados:**
+  - *carregando:* esqueleto ao abrir (`get_active_session`, REQ-54) · durante o envio: "Analisando seu sinal…" com o botão desabilitado; nenhum resultado aparece antes da resposta (REQ-55)
+  - *vazio:* sem sessão ativa (ex.: aba antiga) → "Nenhuma prática em andamento" + botão para A01 (REQ-29)
+  - *erro:* `no_hand_detected` → "Não vimos sua mão. Centralize as mãos no quadro e tente de novo" — a tentativa **não** conta (REQ-28) · `recognizer_unavailable` → "O analisador está ocupado. Tente de novo em N s" (REQ-27) · `stale_sign` → recarrega o estado e avisa "Atualizamos para o sinal atual" (REQ-26) · `session_not_active` → vai para A05 (REQ-24) · `invalid_payload` → "Tentar de novo" (REQ-10) · 5xx → "Tentar de novo" (REQ-57)
+  - *sucesso:* resposta 201 (ou 200 de reenvio idempotente, REQ-25) → A04
+  - *offline:* "Sem conexão — a tentativa não pode ser enviada"; "Gravar tentativa" desabilitado; nada fica guardado para reenvio (REQ-51)
+  - *sem permissão:* `consent_required` → A02 (REQ-08) · câmera revogada no navegador → A02 · `role` errado → aviso (REQ-07)
+- **Regras:** um clique gera um único `client_attempt_id`; reenvio por falha de rede reutiliza o mesmo id (REQ-25); o envio contém só números, nunca imagem (REQ-09, REQ-10); a câmera é desligada ao sair da tela.
+- **Requisitos · contrato:** REQ-08, REQ-09, REQ-10, REQ-16, REQ-24, REQ-25, REQ-26, REQ-27, REQ-28, REQ-29, REQ-34, REQ-50, REQ-52, REQ-55, REQ-58 · `GET /practice-sessions/active` (`get_active_session`), `POST /practice-sessions/{session_id}/attempts` (`submit_attempt`), `POST /practice-sessions/{session_id}/abandon` (`abandon_session`)
+- **Acessibilidade:** a contagem regressiva é visual e textual ("3… 2… 1… gravando"), anunciada por `aria-live`; o vídeo de referência e a câmera ficam lado a lado no desktop e empilhados no celular, sem esconder o botão primário; o foco não fica encoberto pela pré-visualização (WCAG 2.4.11).
+- **Anexo:** esboço de layout em [`anexos/A03-praticar-sinal.md`](anexos/A03-praticar-sinal.md).

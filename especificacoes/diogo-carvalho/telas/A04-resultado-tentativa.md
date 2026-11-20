@@ -1,0 +1,28 @@
+## A04 · Resultado da tentativa
+
+- **Superfície · ator:** App do aluno · aluno
+- **Objetivo:** Mostrar o resultado da tentativa e a decisão do agente, e deixar o aluno seguir.
+- **Chega de / vai para:** **A03** (tentativa avaliada) · recarregar a página reabre a partir de `last_attempt` (REQ-29) → **A03** (Tentar de novo / Próximo sinal / Pular) · **A05** (sessão terminou) · **A07** (Rever o sinal)
+- **Mostra:**
+  - resultado com texto + ícone + cor (REQ-52): "Sinal reconhecido" (`decision_reason = correct`) · "Ainda não foi desta vez" (`wrong_sign`, `low_confidence`) · "Vamos seguir e voltar a ele depois" (`max_attempts_reached`)
+  - `feedback_text` do agente (até 280 caracteres)
+  - motivo da decisão em linguagem simples, derivado de `decision` + `decision_reason` (P5 das diretrizes)
+  - detalhe expansível "Como o agente decidiu": `recognized_gloss` (ou "nenhum sinal conhecido"), `confidence` em %, `confidence_threshold` em %, `attempt_number` de `max_attempts_per_sign`
+  - "Sinal `current_position + 1` de `total_signs`"
+- **Coleta:** nenhuma.
+- **Ações:**
+  - `decision = ADVANCE` e `session_status = active` → **Próximo sinal** (primária) → nenhuma chamada (o estado já veio no `AttemptResult`) → A03 com `session.current_sign`
+  - `decision = ADVANCE` e `session_status = finished` → **Ver resumo** (primária) → A05
+  - `decision = REPEAT` → **Tentar de novo** (primária) → A03, mesmo sinal
+  - `decision = REPEAT` → **Pular este sinal** (secundária) → `skip_sign` → A03 com o próximo sinal ou A05 se era o último (REQ-23, REQ-22)
+  - **Rever o sinal** (secundária) → A07 com `sign_id`
+- **Estados:**
+  - *carregando:* "Pular este sinal" em andamento → botões desabilitados (REQ-54)
+  - *vazio:* aberto sem tentativa (ex.: link direto) → redireciona para A03 (REQ-29)
+  - *erro:* `stale_sign` ao pular (ex.: outra aba já avançou) → recarrega e vai para o sinal atual (REQ-26) · `session_not_active` → A05 (REQ-24) · 5xx → "Tentar de novo" (REQ-57)
+  - *sucesso:* resultado anunciado por `aria-live` assim que a tela abre (REQ-61)
+  - *offline:* "Próximo sinal" e "Tentar de novo" continuam funcionando (navegam para A03, que bloqueia o envio); "Pular" desabilitado (REQ-51)
+  - *sem permissão:* `role` errado → aviso (REQ-07); sessão expirada → G01 (REQ-56)
+- **Regras:** a decisão mostrada é sempre a da API, nunca calculada no cliente (REQ-20, REQ-55); `ADVANCE` só existe por acerto acima do limiar (REQ-17) ou por limite de tentativas (REQ-19); `REPEAT` mantém o sinal (REQ-18); se o modelo de linguagem falhou, o texto-modelo aparece sem aviso de erro (REQ-21); "Pular" é escolha do aluno e não é decisão do agente (REQ-23).
+- **Requisitos · contrato:** REQ-17, REQ-18, REQ-19, REQ-20, REQ-21, REQ-22, REQ-23, REQ-26, REQ-29, REQ-52, REQ-53, REQ-55 · resposta de `POST /practice-sessions/{session_id}/attempts` (`submit_attempt`), `POST /practice-sessions/{session_id}/skip` (`skip_sign`), `GET /practice-sessions/active` (`get_active_session`)
+- **Acessibilidade:** ao abrir, o foco vai para o título do resultado; o resultado não depende de cor (ícone ✓/↻ + texto); percentuais escritos por extenso no leitor de tela ("confiança de 62 por cento").

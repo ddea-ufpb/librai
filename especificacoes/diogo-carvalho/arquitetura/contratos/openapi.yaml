@@ -1,0 +1,1373 @@
+openapi: 3.1.0
+info:
+  title: LibrAI API
+  version: 0.1.0
+  summary: API REST do LibrAI — prática de Libras com agente tutor e reconhecimento de sinais.
+  description: |
+    Contrato das operações usadas pelas telas G01–G02, A01–A08, P01–P04 e C01–C04
+    (ver `../../telas/inventario.md`). Cada operação cita, em `x-screens` e `x-requirements`,
+    as telas e os requisitos EARS (`../requisitos.md`) que a usam.
+
+    Convenções:
+    - Autenticação por cookie `librai_session` (HttpOnly, Secure, SameSite=Lax), REQ-01.
+    - Erros sempre no schema `Error`, com `error.code` estável (citado nos requisitos).
+    - Campos em snake_case, com os mesmos nomes do modelo de dados (`modelo-dados.md`).
+    - `landmarks` nunca são persistidos (REQ-11); nenhuma operação aceita imagem ou vídeo do aluno.
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Desenvolvimento local (Docker Compose)
+security:
+  - sessionCookie: []
+tags:
+  - name: acesso
+  - name: aluno
+  - name: pratica
+  - name: professor
+  - name: curadoria
+  - name: administracao
+
+paths:
+  /auth/login:
+    post:
+      tags: [acesso]
+      operationId: login
+      summary: Entrar com e-mail e senha
+      security: []
+      x-screens: [G01]
+      x-requirements: [REQ-01, REQ-02, REQ-03]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Autenticado; define o cookie `librai_session`.
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/InvalidPayload' }
+        '429': { $ref: '#/components/responses/TooManyAttempts' }
+
+  /auth/logout:
+    post:
+      tags: [acesso]
+      operationId: logout
+      summary: Sair (invalida a sessão)
+      x-screens: [A01, P01, C01]
+      x-requirements: [REQ-01]
+      responses:
+        '204': { description: Sessão encerrada. }
+
+  /me:
+    get:
+      tags: [acesso]
+      operationId: get_me
+      summary: Usuário autenticado e seu papel
+      x-screens: [G01]
+      x-requirements: [REQ-01, REQ-56]
+      responses:
+        '200':
+          description: Usuário autenticado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /accounts:
+    post:
+      tags: [acesso]
+      operationId: create_account
+      summary: Criar conta de aluno
+      security: []
+      x-screens: [G02]
+      x-requirements: [REQ-04, REQ-05, REQ-06]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAccountRequest' }
+      responses:
+        '201':
+          description: Conta criada com `role = student`; sessão autenticada.
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/InvalidPayload' }
+
+  /me/home:
+    get:
+      tags: [aluno]
+      operationId: get_home
+      summary: Dados do Início do aluno
+      x-screens: [A01]
+      x-requirements: [REQ-08, REQ-14, REQ-29, REQ-32]
+      responses:
+        '200':
+          description: Resumo para a tela A01.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Home' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /me/consents:
+    post:
+      tags: [aluno]
+      operationId: grant_consent
+      summary: Registrar consentimento de processamento da câmera
+      x-screens: [A02]
+      x-requirements: [REQ-08]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConsentRequest' }
+      responses:
+        '201':
+          description: Consentimento registrado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Consent' }
+        '200':
+          description: Já havia consentimento vigente na mesma versão; devolve o existente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Consent' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/InvalidPayload' }
+
+  /me/consents/camera_processing:
+    delete:
+      tags: [aluno]
+      operationId: revoke_consent
+      summary: Revogar consentimento da câmera
+      x-screens: [A02]
+      x-requirements: [REQ-12]
+      responses:
+        '204': { description: Consentimento revogado; sessão ativa marcada como `abandoned`. }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /practice-sessions:
+    post:
+      tags: [pratica]
+      operationId: start_session
+      summary: Começar prática (ou devolver a sessão ativa)
+      x-screens: [A01, A05]
+      x-requirements: [REQ-13, REQ-14, REQ-15, REQ-45]
+      responses:
+        '201':
+          description: Sessão nova criada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionState' }
+        '200':
+          description: Já existia sessão ativa; ela é devolvida (REQ-15).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionState' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /practice-sessions/active:
+    get:
+      tags: [pratica]
+      operationId: get_active_session
+      summary: Estado da sessão ativa (retomar)
+      x-screens: [A03, A04]
+      x-requirements: [REQ-29, REQ-34, REQ-52]
+      responses:
+        '200':
+          description: Sessão ativa com sinal atual e última tentativa.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionState' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /practice-sessions/{session_id}/attempts:
+    post:
+      tags: [pratica]
+      operationId: submit_attempt
+      summary: Enviar tentativa (landmarks) e receber a decisão do agente tutor
+      description: |
+        Fluxo: valida → verifica idempotência por `client_attempt_id` → agente tutor chama
+        `recognize_sign` (pool de processos) → `decide_next` (regra determinística) →
+        `generate_feedback` (LLM com fallback) → grava `attempt` + `sign_outcome` + sessão
+        numa transação com `version` otimista (ADR-0003, ADR-0005).
+      x-screens: [A03, A04]
+      x-requirements: [REQ-08, REQ-09, REQ-10, REQ-11, REQ-16, REQ-17, REQ-18, REQ-19, REQ-20, REQ-21, REQ-22, REQ-24, REQ-25, REQ-26, REQ-27, REQ-28, REQ-30, REQ-49, REQ-50, REQ-53, REQ-55]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AttemptRequest' }
+      responses:
+        '201':
+          description: Tentativa avaliada e gravada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttemptResult' }
+        '200':
+          description: Reenvio do mesmo `client_attempt_id`; devolve a tentativa já gravada (REQ-25).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttemptResult' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/SessionConflict' }
+        '413': { $ref: '#/components/responses/InvalidPayload' }
+        '422': { $ref: '#/components/responses/InvalidPayload' }
+        '503': { $ref: '#/components/responses/RecognizerUnavailable' }
+
+  /practice-sessions/{session_id}/skip:
+    post:
+      tags: [pratica]
+      operationId: skip_sign
+      summary: Pular o sinal atual (escolha do aluno)
+      x-screens: [A04]
+      x-requirements: [REQ-22, REQ-23, REQ-24, REQ-26, REQ-30]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SkipRequest' }
+      responses:
+        '200':
+          description: Sinal pulado; devolve o novo estado da sessão.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionState' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/SessionConflict' }
+
+  /practice-sessions/{session_id}/abandon:
+    post:
+      tags: [pratica]
+      operationId: abandon_session
+      summary: Encerrar a sessão antes do fim
+      x-screens: [A03]
+      x-requirements: [REQ-58]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Sessão encerrada (`abandoned`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionState' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/SessionConflict' }
+
+  /practice-sessions/{session_id}/summary:
+    get:
+      tags: [pratica]
+      operationId: get_session_summary
+      summary: Resumo da sessão encerrada
+      x-screens: [A05]
+      x-requirements: [REQ-31]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Resumo por sinal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionSummary' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/SessionConflict' }
+
+  /me/progress:
+    get:
+      tags: [aluno]
+      operationId: get_my_progress
+      summary: Progresso entre sessões (pós-MVP, `progress_history`)
+      x-screens: [A06]
+      x-requirements: [REQ-32]
+      parameters:
+        - $ref: '#/components/parameters/Since'
+      responses:
+        '200':
+          description: Progresso por sinal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MyProgress' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /signs/{sign_id}:
+    get:
+      tags: [aluno]
+      operationId: get_sign
+      summary: Sinal publicado para estudo
+      x-screens: [A07]
+      x-requirements: [REQ-33, REQ-34, REQ-52]
+      parameters:
+        - $ref: '#/components/parameters/SignId'
+      responses:
+        '200':
+          description: Sinal publicado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignForPractice' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /signs/{sign_id}/reports:
+    post:
+      tags: [aluno]
+      operationId: report_sign
+      summary: Reportar problema num sinal
+      x-screens: [A07]
+      x-requirements: [REQ-35]
+      parameters:
+        - $ref: '#/components/parameters/SignId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReportRequest' }
+      responses:
+        '201':
+          description: Reporte criado (`open`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentReport' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/InvalidPayload' }
+
+  /class-enrollments:
+    post:
+      tags: [aluno]
+      operationId: join_class
+      summary: Entrar em turma com código de convite
+      x-screens: [A08]
+      x-requirements: [REQ-36]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JoinClassRequest' }
+      responses:
+        '201':
+          description: Matrícula criada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Enrollment' }
+        '200':
+          description: Já matriculado; nada muda.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Enrollment' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /classes:
+    get:
+      tags: [professor]
+      operationId: list_classes
+      summary: Turmas do professor
+      x-screens: [P01]
+      x-requirements: [REQ-07, REQ-37]
+      responses:
+        '200':
+          description: Turmas do professor autenticado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClassList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [professor]
+      operationId: create_class
+      summary: Criar turma (gera `invite_code`)
+      x-screens: [P01]
+      x-requirements: [REQ-38]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateClassRequest' }
+      responses:
+        '201':
+          description: Turma criada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClassItem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/InvalidPayload' }
+
+  /classes/{class_id}/students:
+    get:
+      tags: [professor]
+      operationId: list_class_students
+      summary: Alunos da turma com indicadores agregados
+      x-screens: [P02]
+      x-requirements: [REQ-37, REQ-39]
+      parameters:
+        - $ref: '#/components/parameters/ClassId'
+        - $ref: '#/components/parameters/Since'
+        - $ref: '#/components/parameters/Until'
+      responses:
+        '200':
+          description: Alunos da turma.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClassStudents' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /classes/{class_id}/students/{student_id}/performance:
+    get:
+      tags: [professor]
+      operationId: get_student_performance
+      summary: Desempenho de um aluno da turma
+      x-screens: [P03]
+      x-requirements: [REQ-11, REQ-37, REQ-39]
+      parameters:
+        - $ref: '#/components/parameters/ClassId'
+        - name: student_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Since'
+        - $ref: '#/components/parameters/Until'
+      responses:
+        '200':
+          description: Sessões e desempenho por sinal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StudentPerformance' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /classes/{class_id}/difficulties:
+    get:
+      tags: [professor]
+      operationId: list_class_difficulties
+      summary: Sinais com maior taxa de não domínio na turma
+      x-screens: [P04]
+      x-requirements: [REQ-37, REQ-40]
+      parameters:
+        - $ref: '#/components/parameters/ClassId'
+        - $ref: '#/components/parameters/Since'
+        - $ref: '#/components/parameters/Until'
+      responses:
+        '200':
+          description: Dificuldades por sinal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClassDifficulties' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/signs:
+    get:
+      tags: [curadoria]
+      operationId: admin_list_signs
+      summary: Catálogo de sinais (todos os status)
+      x-screens: [C01]
+      x-requirements: [REQ-07, REQ-14, REQ-42, REQ-45]
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/SignStatus' }
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 60 }
+      responses:
+        '200':
+          description: Sinais do catálogo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSignList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [curadoria]
+      operationId: admin_create_sign
+      summary: Criar sinal (`draft`)
+      x-screens: [C02]
+      x-requirements: [REQ-48, REQ-55]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignInput' }
+      responses:
+        '201':
+          description: Sinal criado em `draft`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSign' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/InvalidPayload' }
+
+  /admin/signs/{sign_id}:
+    get:
+      tags: [curadoria]
+      operationId: admin_get_sign
+      summary: Sinal para edição
+      x-screens: [C02]
+      x-requirements: [REQ-07]
+      parameters:
+        - $ref: '#/components/parameters/SignId'
+      responses:
+        '200':
+          description: Sinal com mídia de referência.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSign' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [curadoria]
+      operationId: admin_update_sign
+      summary: Atualizar sinal (controle otimista por `version`)
+      x-screens: [C02]
+      x-requirements: [REQ-43, REQ-48, REQ-55]
+      parameters:
+        - $ref: '#/components/parameters/SignId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignUpdate' }
+      responses:
+        '200':
+          description: Sinal atualizado; `version` incrementada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSign' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/InvalidPayload' }
+
+  /admin/signs/{sign_id}/reference-media:
+    post:
+      tags: [curadoria]
+      operationId: admin_upload_reference_media
+      summary: Enviar vídeo de referência com licença e consentimento
+      x-screens: [C02]
+      x-requirements: [REQ-41, REQ-44]
+      parameters:
+        - $ref: '#/components/parameters/SignId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/ReferenceMediaUpload' }
+      responses:
+        '201':
+          description: Mídia gravada e associada ao sinal (substitui a anterior).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReferenceMedia' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/InvalidPayload' }
+        '415': { $ref: '#/components/responses/InvalidPayload' }
+        '422': { $ref: '#/components/responses/InvalidPayload' }
+
+  /admin/signs/{sign_id}/status:
+    post:
+      tags: [curadoria]
+      operationId: admin_change_sign_status
+      summary: Mudar status do sinal (revisar, publicar, arquivar)
+      x-screens: [C02]
+      x-requirements: [REQ-41, REQ-42, REQ-43, REQ-45]
+      parameters:
+        - $ref: '#/components/parameters/SignId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusChangeRequest' }
+      responses:
+        '200':
+          description: Status alterado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSign' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/InvalidPayload' }
+
+  /admin/recognizer/labels:
+    get:
+      tags: [curadoria]
+      operationId: admin_list_recognizer_labels
+      summary: Rótulos suportados pelo modelo de reconhecimento carregado
+      x-screens: [C02]
+      x-requirements: [REQ-48]
+      responses:
+        '200':
+          description: Rótulos e versão do modelo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecognizerLabels' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/reports:
+    get:
+      tags: [curadoria]
+      operationId: admin_list_reports
+      summary: Reportes de conteúdo
+      x-screens: [C03]
+      x-requirements: [REQ-35]
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ReportStatus' }
+      responses:
+        '200':
+          description: Reportes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/reports/{report_id}:
+    patch:
+      tags: [curadoria]
+      operationId: admin_resolve_report
+      summary: Resolver ou descartar um reporte
+      x-screens: [C03]
+      x-requirements: [REQ-46]
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResolveReportRequest' }
+      responses:
+        '200':
+          description: Reporte resolvido.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentReport' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/InvalidPayload' }
+
+  /admin/users:
+    get:
+      tags: [administracao]
+      operationId: admin_list_users
+      summary: Contas do sistema
+      x-screens: [C04]
+      x-requirements: [REQ-07]
+      parameters:
+        - name: role
+          in: query
+          schema: { $ref: '#/components/schemas/Role' }
+      responses:
+        '200':
+          description: Contas.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [administracao]
+      operationId: admin_create_user
+      summary: Criar conta de professor ou administrador
+      x-screens: [C04]
+      x-requirements: [REQ-06, REQ-59]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateUserRequest' }
+      responses:
+        '201':
+          description: Conta criada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserItem' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/InvalidPayload' }
+
+  /admin/users/{user_id}:
+    patch:
+      tags: [administracao]
+      operationId: admin_update_user
+      summary: Mudar papel ou status de uma conta
+      x-screens: [C04]
+      x-requirements: [REQ-47]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateUserRequest' }
+      responses:
+        '200':
+          description: Conta atualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: librai_session
+
+  parameters:
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SignId:
+      name: sign_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ClassId:
+      name: class_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Since:
+      name: since
+      in: query
+      schema: { type: string, format: date }
+    Until:
+      name: until
+      in: query
+      schema: { type: string, format: date }
+
+  responses:
+    Unauthorized:
+      description: '`invalid_credentials` (REQ-02) · `unauthenticated` (REQ-01) · `session_expired` (REQ-56)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: '`forbidden` (REQ-07) · `consent_required` (REQ-08)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: '`not_found` (REQ-31, REQ-33, REQ-37) · `class_not_found` (REQ-36) · `feature_disabled` (REQ-32)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: '`email_taken` (REQ-05, REQ-59) · `no_signs_available` (REQ-14) · `report_exists` (REQ-35) · `invalid_transition` (REQ-42) · `version_conflict` (REQ-43) · `last_admin` (REQ-47)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    SessionConflict:
+      description: '`session_not_active` (REQ-24) · `stale_sign` (REQ-26); `details.session` traz o `SessionState` atual.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InvalidPayload:
+      description: '`invalid_payload` (REQ-06, REQ-10, REQ-46) · `no_hand_detected` (REQ-28) · `unknown_label` (REQ-48) · `publish_requirements_missing` (REQ-41) · `file_too_large` / `unsupported_media_type` (REQ-44)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyAttempts:
+      description: '`too_many_attempts` (REQ-03)'
+      headers:
+        Retry-After: { schema: { type: integer, description: segundos } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RecognizerUnavailable:
+      description: '`recognizer_unavailable` (REQ-27)'
+      headers:
+        Retry-After: { schema: { type: integer, description: segundos } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    # ---------- enums ----------
+    Role:
+      type: string
+      enum: [student, teacher, admin]
+    AccountStatus:
+      type: string
+      enum: [active, disabled]
+    SignStatus:
+      type: string
+      enum: [draft, in_review, published, archived]
+    SessionStatus:
+      type: string
+      enum: [active, finished, abandoned]
+    Decision:
+      type: string
+      enum: [REPEAT, ADVANCE]
+    DecisionReason:
+      type: string
+      enum: [correct, wrong_sign, low_confidence, max_attempts_reached]
+    Outcome:
+      type: string
+      enum: [mastered, not_mastered, skipped, not_reached]
+      description: '`not_reached` só aparece no resumo; não é gravado em `sign_outcome`.'
+    FeedbackSource:
+      type: string
+      enum: [llm, template]
+    ReportReason:
+      type: string
+      enum: [incorrect_execution, regional_variant, inappropriate, other]
+    ReportStatus:
+      type: string
+      enum: [open, resolved, dismissed]
+
+    # ---------- erro ----------
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - unauthenticated
+                - invalid_credentials
+                - session_expired
+                - too_many_attempts
+                - forbidden
+                - consent_required
+                - not_found
+                - class_not_found
+                - feature_disabled
+                - email_taken
+                - no_signs_available
+                - session_not_active
+                - stale_sign
+                - report_exists
+                - invalid_transition
+                - version_conflict
+                - last_admin
+                - invalid_payload
+                - no_hand_detected
+                - unknown_label
+                - publish_requirements_missing
+                - file_too_large
+                - unsupported_media_type
+                - recognizer_unavailable
+            message:
+              type: string
+              description: Mensagem em pt-BR para log; o cliente usa `code` para escolher o texto da tela.
+            details:
+              type: object
+              additionalProperties: true
+              description: 'Ex.: `session` (SessionState) em `stale_sign`; `missing` (lista) em `publish_requirements_missing`; `current_version` em `version_conflict`; `field` em `invalid_payload`.'
+
+    # ---------- acesso ----------
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 1, maxLength: 128 }
+    CreateAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [display_name, email, password, accepted_terms_version]
+      properties:
+        display_name: { type: string, minLength: 2, maxLength: 60 }
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 8, maxLength: 128 }
+        accepted_terms_version: { type: string, example: '2026-10' }
+    Me:
+      type: object
+      required: [user_id, display_name, email, role]
+      properties:
+        user_id: { type: string, format: uuid }
+        display_name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+
+    # ---------- aluno ----------
+    Home:
+      type: object
+      required: [display_name, consent_camera_active, active_session, published_signs_count, enrolled_classes, progress_history_enabled]
+      properties:
+        display_name: { type: string }
+        consent_camera_active: { type: boolean }
+        active_session:
+          oneOf:
+            - $ref: '#/components/schemas/SessionState'
+            - type: 'null'
+        published_signs_count: { type: integer, minimum: 0 }
+        enrolled_classes:
+          type: array
+          items:
+            type: object
+            required: [class_id, name]
+            properties:
+              class_id: { type: string, format: uuid }
+              name: { type: string }
+        progress_history_enabled: { type: boolean }
+    ConsentRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, terms_version]
+      properties:
+        kind: { type: string, enum: [camera_processing] }
+        terms_version: { type: string, example: '2026-10' }
+    Consent:
+      type: object
+      required: [consent_id, kind, terms_version, granted_at]
+      properties:
+        consent_id: { type: string, format: uuid }
+        kind: { type: string, enum: [camera_processing] }
+        terms_version: { type: string }
+        granted_at: { type: string, format: date-time }
+        revoked_at: { type: ['string', 'null'], format: date-time }
+
+    # ---------- prática ----------
+    SignForPractice:
+      type: object
+      required: [sign_id, gloss, description_text, regional_variant, source_credit, reference_media_url]
+      properties:
+        sign_id: { type: string, format: uuid }
+        gloss: { type: string, example: LETRA-B }
+        description_text: { type: string }
+        regional_variant: { type: string, example: Nacional }
+        source_credit: { type: string }
+        reference_media_url: { type: string, format: uri }
+    SessionState:
+      type: object
+      required: [session_id, status, current_position, total_signs, max_attempts_per_sign, confidence_threshold, version, started_at]
+      properties:
+        session_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/SessionStatus' }
+        current_position: { type: integer, minimum: 0, description: Índice 0-based em `sign_ids`. }
+        total_signs: { type: integer, minimum: 1 }
+        current_sign:
+          oneOf:
+            - $ref: '#/components/schemas/SignForPractice'
+            - type: 'null'
+          description: Nulo quando a sessão não está `active`.
+        next_attempt_number: { type: integer, minimum: 1 }
+        max_attempts_per_sign: { type: integer, minimum: 1, example: 3 }
+        confidence_threshold: { type: number, minimum: 0, maximum: 1, example: 0.8 }
+        last_attempt:
+          oneOf:
+            - $ref: '#/components/schemas/AttemptSnapshot'
+            - type: 'null'
+        version: { type: integer, minimum: 0 }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: ['string', 'null'], format: date-time }
+    Landmarks:
+      type: object
+      additionalProperties: false
+      description: Pontos das mãos extraídos no navegador (ADR-0002). Nunca persistidos (REQ-11).
+      required: [fps, frames]
+      properties:
+        fps: { type: integer, minimum: 10, maximum: 60 }
+        frames:
+          type: array
+          minItems: 1
+          maxItems: 90
+          items:
+            type: object
+            additionalProperties: false
+            required: [t_ms, hands]
+            properties:
+              t_ms: { type: integer, minimum: 0, maximum: 3500 }
+              hands:
+                type: array
+                maxItems: 2
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [handedness, points]
+                  properties:
+                    handedness: { type: string, enum: [Left, Right] }
+                    points:
+                      type: array
+                      minItems: 21
+                      maxItems: 21
+                      items:
+                        type: array
+                        minItems: 3
+                        maxItems: 3
+                        items: { type: number }
+    AttemptRequest:
+      type: object
+      additionalProperties: false
+      required: [client_attempt_id, expected_sign_id, landmarks]
+      properties:
+        client_attempt_id: { type: string, format: uuid, description: Chave de idempotência gerada no cliente (REQ-25). }
+        expected_sign_id: { type: string, format: uuid, description: Sinal que o cliente estava exibindo (REQ-26). }
+        landmarks: { $ref: '#/components/schemas/Landmarks' }
+    AttemptSnapshot:
+      type: object
+      required: [attempt_id, client_attempt_id, sign_id, attempt_number, confidence, decision, decision_reason, feedback_text, feedback_source, created_at]
+      properties:
+        attempt_id: { type: string, format: uuid }
+        client_attempt_id: { type: string, format: uuid }
+        sign_id: { type: string, format: uuid }
+        attempt_number: { type: integer, minimum: 1 }
+        recognized_label: { type: ['string', 'null'] }
+        recognized_gloss: { type: ['string', 'null'], description: Gloss do sinal publicado com esse rótulo, se houver. }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        decision: { $ref: '#/components/schemas/Decision' }
+        decision_reason: { $ref: '#/components/schemas/DecisionReason' }
+        feedback_text: { type: string, maxLength: 280 }
+        feedback_source: { $ref: '#/components/schemas/FeedbackSource' }
+        created_at: { type: string, format: date-time }
+    AttemptResult:
+      allOf:
+        - $ref: '#/components/schemas/AttemptSnapshot'
+        - type: object
+          required: [session_status, confidence_threshold, max_attempts_per_sign, session]
+          properties:
+            session_status: { $ref: '#/components/schemas/SessionStatus' }
+            confidence_threshold: { type: number }
+            max_attempts_per_sign: { type: integer }
+            session: { $ref: '#/components/schemas/SessionState' }
+    SkipRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_sign_id]
+      properties:
+        expected_sign_id: { type: string, format: uuid }
+    SessionSummary:
+      type: object
+      required: [session_id, status, started_at, finished_at, items]
+      properties:
+        session_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/SessionStatus' }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        items:
+          type: array
+          items:
+            type: object
+            required: [sign_id, gloss, outcome, attempts_count]
+            properties:
+              sign_id: { type: string, format: uuid }
+              gloss: { type: string }
+              outcome: { $ref: '#/components/schemas/Outcome' }
+              attempts_count: { type: integer, minimum: 0 }
+              best_confidence: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+    MyProgress:
+      type: object
+      required: [sessions_finished, sessions_abandoned, items]
+      properties:
+        sessions_finished: { type: integer }
+        sessions_abandoned: { type: integer }
+        items:
+          type: array
+          items:
+            type: object
+            required: [sign_id, gloss, sessions_count, mastered_count, last_practiced_at]
+            properties:
+              sign_id: { type: string, format: uuid }
+              gloss: { type: string }
+              sessions_count: { type: integer }
+              mastered_count: { type: integer }
+              last_practiced_at: { type: string, format: date-time }
+    ReportRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { $ref: '#/components/schemas/ReportReason' }
+        comment: { type: string, maxLength: 500 }
+    ContentReport:
+      type: object
+      required: [report_id, sign_id, reason, status, created_at]
+      properties:
+        report_id: { type: string, format: uuid }
+        sign_id: { type: string, format: uuid }
+        sign_gloss: { type: string }
+        reason: { $ref: '#/components/schemas/ReportReason' }
+        comment: { type: ['string', 'null'] }
+        status: { $ref: '#/components/schemas/ReportStatus' }
+        resolution_note: { type: ['string', 'null'] }
+        resolved_at: { type: ['string', 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+    JoinClassRequest:
+      type: object
+      additionalProperties: false
+      required: [invite_code]
+      properties:
+        invite_code: { type: string, pattern: '^[A-HJKMNP-Za-hjkmnp-z2-9]{8}$' }
+    Enrollment:
+      type: object
+      required: [class_id, class_name, joined_at]
+      properties:
+        class_id: { type: string, format: uuid }
+        class_name: { type: string }
+        joined_at: { type: string, format: date-time }
+
+    # ---------- professor ----------
+    CreateClassRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 3, maxLength: 80 }
+    ClassItem:
+      type: object
+      required: [class_id, name, invite_code, students_count, created_at]
+      properties:
+        class_id: { type: string, format: uuid }
+        name: { type: string }
+        invite_code: { type: string }
+        students_count: { type: integer }
+        last_practice_at: { type: ['string', 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+    ClassList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ClassItem' }
+    ClassStudents:
+      type: object
+      required: [class_id, class_name, invite_code, since, until, items]
+      properties:
+        class_id: { type: string, format: uuid }
+        class_name: { type: string }
+        invite_code: { type: string }
+        since: { type: string, format: date }
+        until: { type: string, format: date }
+        items:
+          type: array
+          items:
+            type: object
+            required: [student_id, display_name, sessions_count, signs_mastered_count, signs_not_mastered_count]
+            properties:
+              student_id: { type: string, format: uuid }
+              display_name: { type: string }
+              sessions_count: { type: integer }
+              signs_mastered_count: { type: integer }
+              signs_not_mastered_count: { type: integer }
+              last_practice_at: { type: ['string', 'null'], format: date-time }
+    StudentPerformance:
+      type: object
+      required: [student_id, display_name, since, until, sessions, signs]
+      properties:
+        student_id: { type: string, format: uuid }
+        display_name: { type: string }
+        since: { type: string, format: date }
+        until: { type: string, format: date }
+        sessions:
+          type: array
+          items:
+            type: object
+            required: [session_id, started_at, status, signs_mastered_count, signs_total]
+            properties:
+              session_id: { type: string, format: uuid }
+              started_at: { type: string, format: date-time }
+              status: { $ref: '#/components/schemas/SessionStatus' }
+              signs_mastered_count: { type: integer }
+              signs_total: { type: integer }
+        signs:
+          type: array
+          items:
+            type: object
+            required: [sign_id, gloss, attempts_total, mastered_count, not_mastered_count, skipped_count]
+            properties:
+              sign_id: { type: string, format: uuid }
+              gloss: { type: string }
+              attempts_total: { type: integer }
+              mastered_count: { type: integer }
+              not_mastered_count: { type: integer }
+              skipped_count: { type: integer }
+              avg_attempts_to_master: { type: ['number', 'null'] }
+    ClassDifficulties:
+      type: object
+      required: [class_id, class_name, since, until, items]
+      properties:
+        class_id: { type: string, format: uuid }
+        class_name: { type: string }
+        since: { type: string, format: date }
+        until: { type: string, format: date }
+        items:
+          type: array
+          items:
+            type: object
+            required: [sign_id, gloss, students_count, outcomes_count, not_mastered_rate, insufficient_data]
+            properties:
+              sign_id: { type: string, format: uuid }
+              gloss: { type: string }
+              students_count: { type: integer }
+              outcomes_count: { type: integer }
+              not_mastered_rate: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+              insufficient_data: { type: boolean }
+
+    # ---------- curadoria ----------
+    ReferenceMedia:
+      type: object
+      required: [media_id, url, mime_type, size_bytes, license, author_credit, consent_confirmed, uploaded_at]
+      properties:
+        media_id: { type: string, format: uuid }
+        url: { type: string, format: uri }
+        mime_type: { type: string, enum: [video/mp4, video/webm] }
+        size_bytes: { type: integer, maximum: 52428800 }
+        duration_ms: { type: ['integer', 'null'] }
+        license: { type: string }
+        author_credit: { type: string }
+        consent_confirmed: { type: boolean }
+        uploaded_at: { type: string, format: date-time }
+    ReferenceMediaUpload:
+      type: object
+      required: [file, license, author_credit, consent_confirmed]
+      properties:
+        file: { type: string, contentMediaType: application/octet-stream, description: 'video/mp4 ou video/webm, até 50 MB (REQ-44)' }
+        license: { type: string, minLength: 1, maxLength: 200 }
+        author_credit: { type: string, minLength: 1, maxLength: 200 }
+        consent_confirmed: { type: boolean }
+    SignInput:
+      type: object
+      additionalProperties: false
+      required: [gloss, regional_variant, recognizer_label, curriculum_order, source_credit]
+      properties:
+        gloss: { type: string, minLength: 1, maxLength: 60 }
+        description_text: { type: string, maxLength: 1000 }
+        regional_variant: { type: string, minLength: 1, maxLength: 80 }
+        recognizer_label: { type: string, maxLength: 60 }
+        curriculum_order: { type: integer, minimum: 1 }
+        source_credit: { type: string, minLength: 1, maxLength: 200 }
+    SignUpdate:
+      allOf:
+        - $ref: '#/components/schemas/SignInput'
+        - type: object
+          required: [version]
+          properties:
+            version: { type: integer, minimum: 0, description: Versão lida; divergente → `version_conflict` (REQ-43). }
+    AdminSign:
+      type: object
+      required: [sign_id, gloss, regional_variant, recognizer_label, curriculum_order, source_credit, status, version, open_reports_count, updated_at]
+      properties:
+        sign_id: { type: string, format: uuid }
+        gloss: { type: string }
+        description_text: { type: ['string', 'null'] }
+        regional_variant: { type: string }
+        recognizer_label: { type: string }
+        curriculum_order: { type: integer }
+        source_credit: { type: string }
+        status: { $ref: '#/components/schemas/SignStatus' }
+        version: { type: integer }
+        reviewed_by: { type: ['string', 'null'], format: uuid }
+        reviewed_at: { type: ['string', 'null'], format: date-time }
+        reference_media:
+          oneOf:
+            - $ref: '#/components/schemas/ReferenceMedia'
+            - type: 'null'
+        open_reports_count: { type: integer }
+        updated_at: { type: string, format: date-time }
+    AdminSignList:
+      type: object
+      required: [counts_by_status, open_reports_count, items]
+      properties:
+        counts_by_status:
+          type: object
+          required: [draft, in_review, published, archived]
+          properties:
+            draft: { type: integer }
+            in_review: { type: integer }
+            published: { type: integer }
+            archived: { type: integer }
+        open_reports_count: { type: integer }
+        items:
+          type: array
+          items:
+            type: object
+            required: [sign_id, gloss, regional_variant, recognizer_label, status, curriculum_order, has_reference_media, open_reports_count, updated_at]
+            properties:
+              sign_id: { type: string, format: uuid }
+              gloss: { type: string }
+              regional_variant: { type: string }
+              recognizer_label: { type: string }
+              status: { $ref: '#/components/schemas/SignStatus' }
+              curriculum_order: { type: integer }
+              has_reference_media: { type: boolean }
+              open_reports_count: { type: integer }
+              updated_at: { type: string, format: date-time }
+    StatusChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [to_status, version]
+      properties:
+        to_status: { $ref: '#/components/schemas/SignStatus' }
+        version: { type: integer, minimum: 0 }
+    RecognizerLabels:
+      type: object
+      required: [model_version, labels]
+      properties:
+        model_version: { type: string }
+        labels:
+          type: array
+          items: { type: string }
+    ReportList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ContentReport' }
+    ResolveReportRequest:
+      type: object
+      additionalProperties: false
+      required: [status, resolution_note]
+      properties:
+        status: { type: string, enum: [resolved, dismissed] }
+        resolution_note: { type: string, minLength: 5, maxLength: 500 }
+
+    # ---------- administração ----------
+    UserItem:
+      type: object
+      required: [user_id, display_name, email, role, status, created_at]
+      properties:
+        user_id: { type: string, format: uuid }
+        display_name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        created_at: { type: string, format: date-time }
+    UserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/UserItem' }
+    CreateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [display_name, email, role, password]
+      properties:
+        display_name: { type: string, minLength: 2, maxLength: 60 }
+        email: { type: string, format: email, maxLength: 254 }
+        role: { type: string, enum: [teacher, admin] }
+        password: { type: string, minLength: 8, maxLength: 128 }
+    UpdateUserRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        role: { $ref: '#/components/schemas/Role' }
+        status: { $ref: '#/components/schemas/AccountStatus' }

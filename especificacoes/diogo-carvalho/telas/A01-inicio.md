@@ -1,0 +1,27 @@
+## A01 · Início
+
+- **Superfície · ator:** App do aluno · aluno
+- **Objetivo:** Começar uma prática guiada (ou continuar a que ficou aberta).
+- **Chega de / vai para:** **G01**, **G02**, **A05** ("Voltar ao início"), **A08** (entrou na turma) → **A03** (começar/continuar, com consentimento) · **A02** (começar, sem consentimento) · **A06** (Meu progresso) · **A08** (Entrar em turma) · **G01** (Sair)
+- **Mostra:**
+  - saudação com `display_name`
+  - cartão da prática: se existir `active_session`, mostra "Sessão em andamento — sinal `current_position + 1` de `total_signs`"; senão, "Prática de `SESSION_SIZE` sinais, cerca de 10 minutos"
+  - `published_signs_count` (quantos sinais existem para praticar)
+  - turmas em que está matriculado (`enrolled_classes[].name`), se houver
+  - estado do consentimento da câmera (`consent_camera_active`)
+- **Coleta:** nenhuma.
+- **Ações:**
+  - **Começar prática** / **Continuar prática** (primária) → `start_session` (devolve a sessão ativa, se existir — REQ-15) → A03; se `consent_camera_active = false` → A02 antes
+  - **Meu progresso** → nenhuma chamada → A06 (só aparece se `progress_history_enabled = true`, REQ-32)
+  - **Entrar em turma** → nenhuma chamada → A08
+  - **Sair** → `logout` → G01
+- **Estados:**
+  - *carregando:* esqueleto do cartão de prática (REQ-54)
+  - *vazio:* `published_signs_count = 0` → "Ainda não há sinais publicados para praticar. Volte mais tarde." e o botão primário desabilitado (REQ-14)
+  - *erro:* `no_signs_available` ao começar → mesma mensagem do vazio (REQ-14) · 5xx → "Tentar de novo" (REQ-57)
+  - *sucesso:* com sessão ativa, o botão vira "Continuar prática" e mostra a posição (REQ-29)
+  - *offline:* faixa "Sem conexão"; "Começar prática" desabilitado (REQ-51)
+  - *sem permissão:* `role` diferente de `student` → aviso + link para P01/C01 (REQ-07); sessão expirada → G01 (REQ-56)
+- **Regras:** existe no máximo uma sessão ativa por aluno, e "Começar" nunca cria uma segunda (REQ-15); a seleção de sinais é feita pelo sistema por `curriculum_order`, nunca pelo aluno (REQ-13).
+- **Requisitos · contrato:** REQ-08, REQ-13, REQ-14, REQ-15, REQ-29, REQ-32 · `GET /me/home` (`get_home`), `POST /practice-sessions` (`start_session`), `POST /auth/logout` (`logout`)
+- **Acessibilidade:** o cartão de prática é um único alvo de 44 px de altura no mínimo; o texto do botão muda entre "Começar" e "Continuar" (o estado não é indicado só por ícone).

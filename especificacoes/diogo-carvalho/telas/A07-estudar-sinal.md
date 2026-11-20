@@ -1,0 +1,26 @@
+## A07 · Estudar sinal
+
+- **Superfície · ator:** App do aluno · aluno
+- **Objetivo:** Estudar com calma como um sinal é executado e, se algo estiver errado, reportar.
+- **Chega de / vai para:** **A04** (Rever o sinal), **A05** (Rever sinal), **A06** (Abrir sinal) → tela de origem (Voltar)
+- **Mostra:**
+  - `gloss`
+  - vídeo de referência (`reference_media_url`) com pausar, repetir e velocidade 0,5× (REQ-52)
+  - `description_text` (descrição textual da execução)
+  - `regional_variant` (ex.: "Variante usada em Pernambuco") e `source_credit` (quem gravou e licença) (REQ-34)
+- **Coleta:** (no diálogo "Reportar problema")
+  - `reason` · escolha: `incorrect_execution` ("execução errada"), `regional_variant` ("é uma variante regional, não a única forma"), `inappropriate` ("conteúdo inadequado"), `other` · obrigatório
+  - `comment` · texto, até 500 caracteres · opcional
+- **Ações:**
+  - **Voltar à prática** (primária, se veio de A04) / **Voltar** → tela de origem
+  - **Reportar problema** → abre diálogo → **Enviar reporte** → `report_sign` → "Obrigado, a curadoria vai revisar" → permanece
+- **Estados:**
+  - *carregando:* esqueleto do vídeo e do texto (REQ-54)
+  - *vazio:* sinal sem `description_text` não existe publicado (REQ-41); se o vídeo falhar ao tocar, a descrição continua visível
+  - *erro:* `not_found` (sinal arquivado ou em rascunho) → "Este sinal não está mais disponível" (REQ-33) · `report_exists` → "Você já reportou este sinal; a curadoria está avaliando" (REQ-35) · 5xx → "Tentar de novo", comentário preservado (REQ-57)
+  - *sucesso:* reporte enviado → confirmação anunciada por `aria-live` (REQ-61)
+  - *offline:* vídeo já carregado continua tocando; "Enviar reporte" desabilitado (REQ-51)
+  - *sem permissão:* `role` errado → aviso (REQ-07); sessão expirada → G01 (REQ-56)
+- **Regras:** só sinais `published` (REQ-33); `regional_variant` e `source_credit` sempre visíveis (REQ-34); um reporte aberto por aluno por sinal (REQ-35).
+- **Requisitos · contrato:** REQ-33, REQ-34, REQ-35, REQ-52 · `GET /signs/{sign_id}` (`get_sign`), `POST /signs/{sign_id}/reports` (`report_sign`)
+- **Acessibilidade:** controles do vídeo acessíveis por teclado; vídeo nunca em autoplay em loop; o diálogo de reporte prende o foco e fecha com Esc (WCAG 2.1.2, 2.2.2).
